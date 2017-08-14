@@ -66,3 +66,7 @@ else()
   add_executable(metrics_calc_lite src/metrics_calc_lite_utils.cpp src/metrics_calc_lite.cpp)
   target_link_libraries(metrics_calc_lite ${IPP_LIBS})
 endif()
+
+if (UNIX)
+  install(TARGETS metrics_calc_lite RUNTIME DESTINATION bin)
+endif()
