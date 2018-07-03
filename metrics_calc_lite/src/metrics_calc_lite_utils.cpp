@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Intel Corporation
+// Copyright (c) 2017-2018 Intel Corporation
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -20,7 +20,7 @@
 
 #include "metrics_calc_lite_utils.h"
 
-#ifndef NO_IPP
+#if !defined(NO_IPP)
 EErrorStatus stsIPPtoMCL(IppStatus sts)
 {
     if (ippStsNoErr == sts)       return MCL_ERR_NONE;
@@ -115,7 +115,7 @@ uint64_t _file_ftell(FILE *fd)
 
 uint8_t* mclMalloc(uint32_t size, EBitDepth bd)
 {
-#ifdef NO_IPP
+#if defined(NO_IPP)
     if      (bd == D008) return (uint8_t*)new uint8_t[size];
     else if (bd == D010) return (uint8_t*)new uint16_t[size];
 #else
@@ -127,7 +127,7 @@ uint8_t* mclMalloc(uint32_t size, EBitDepth bd)
 
 float* mclMalloc_32f_C1(int32_t widthPixels, int32_t heightPixels, int32_t* pStepBytes)
 {
-#ifdef NO_IPP
+#if defined(NO_IPP)
     *pStepBytes = widthPixels << 2;
     return new float[widthPixels * heightPixels];
 #else
@@ -233,7 +233,7 @@ EErrorStatus mclYCbCr420ToYCrCb420_16u_P2P3R(const uint16_t* pSrcY, int32_t srcY
 
 EErrorStatus mclYCbCr420ToYCrCb420_P2P3R(const uint8_t* pSrcY, int32_t srcYStep, const uint8_t* pSrcUV, int32_t srcUVStep, uint8_t* PDst[3], int32_t dstStep[3], ImageSize roiSize, EBitDepth bd)
 {
-#ifdef NO_IPP
+#if defined(NO_IPP)
     if      (bd == D008) mclYCbCr420ToYCrCb420_8u_P2P3R( (uint8_t*)pSrcY,  srcYStep, (uint8_t*)pSrcUV,  srcUVStep, (uint8_t**)PDst,  dstStep, roiSize);
 #else
     if      (bd == D008) ippiYCbCr420ToYCrCb420_8u_P2P3R((uint8_t*)pSrcY,  srcYStep, (uint8_t*)pSrcUV,  srcUVStep, (uint8_t**)PDst,  dstStep, roiSize);
@@ -327,7 +327,7 @@ EErrorStatus mclYCbCr422_16u_C2P3R(uint16_t* pSrc, int32_t srcStep, uint16_t* pD
 
 EErrorStatus mclYCbCr422_C2P3R(uint8_t* pSrc, int32_t srcStep, uint8_t* pDst[3], int32_t dstStep[3], ImageSize roiSize, EBitDepth bd)
 {
-#ifdef NO_IPP
+#if defined(NO_IPP)
     if      (bd == D008) mclYCbCr422_8u_C2P3R( (uint8_t*)pSrc,  srcStep, (uint8_t**)pDst,  dstStep, roiSize);
 #else
     if      (bd == D008) ippiYCbCr422_8u_C2P3R((uint8_t*)pSrc,  srcStep, (uint8_t**)pDst,  dstStep, roiSize);
@@ -605,7 +605,7 @@ EErrorStatus mclCopy_16u_C4P4R(const uint16_t* pSrc, int32_t srcStep, uint16_t* 
 
 EErrorStatus mclCopy_C4P4R(const uint8_t* pSrc, int32_t srcStep, uint8_t* const pDst[4], int32_t dstStep, ImageSize roiSize, EBitDepth bd)
 {
-#ifdef NO_IPP
+#if defined(NO_IPP)
     if      (D008 == bd) return mclCopy_8u_C4P4R( (uint8_t*)pSrc,  srcStep, (uint8_t**)pDst,  dstStep, roiSize);
     else if (D010 == bd) return mclCopy_16u_C4P4R((uint16_t*)pSrc, srcStep, (uint16_t**)pDst, dstStep, roiSize);
 #else
@@ -662,7 +662,7 @@ EErrorStatus mclRShiftC_16u_C1IR(uint32_t value, uint16_t* pSrcDst, int32_t srcD
 EErrorStatus mclRShiftC_C1IR(uint32_t value, uint8_t* pSrcDst, int32_t srcDstStep, ImageSize roiSize, EBitDepth bd)
 {
     if (0 == value) return MCL_ERR_NONE;
-#ifdef NO_IPP
+#if defined(NO_IPP)
     if      (D008 == bd) return mclRShiftC_8u_C1IR (value, (uint8_t*) pSrcDst, srcDstStep,  roiSize);
     else if (D010 == bd) return mclRShiftC_16u_C1IR(value, (uint16_t*) pSrcDst, srcDstStep, roiSize);
 #else
@@ -727,7 +727,7 @@ EErrorStatus mclNormDiff_L2_16u_C1R(const uint16_t* pSrc1, int32_t src1Step, con
 
 EErrorStatus mclNormDiff_L2_C1R(const uint8_t* pSrc1, int32_t src1Step, const uint8_t* pSrc2, int32_t src2Step, ImageSize roiSize, double& value, EBitDepth bd)
 {
-#ifdef NO_IPP
+#if defined(NO_IPP)
     if      (D008 == bd) return mclNormDiff_L2_8u_C1R( (uint8_t*) pSrc1, src1Step, (uint8_t*) pSrc2, src2Step, roiSize, &value);
     else if (D010 == bd) return mclNormDiff_L2_16u_C1R((uint16_t*)pSrc1, src1Step, (uint16_t*)pSrc2, src2Step, roiSize, &value);
 #else
@@ -788,7 +788,7 @@ EErrorStatus mclConvert_16u32f_C1R(const uint16_t* pSrc, int32_t srcStep, float*
 
 EErrorStatus mclConvert__u32f_C1R(const uint8_t* pSrc, int32_t srcStep, float* pDst, int32_t dstStep, ImageSize roiSize, EBitDepth bd)
 {
-#ifdef NO_IPP
+#if defined(NO_IPP)
     if      (D008 == bd) return mclConvert_8u32f_C1R( (uint8_t*) pSrc, srcStep, pDst, dstStep, roiSize);
     else if (D010 == bd) return mclConvert_16u32f_C1R((uint16_t*)pSrc, srcStep, pDst, dstStep, roiSize);
 #else
@@ -800,7 +800,7 @@ EErrorStatus mclConvert__u32f_C1R(const uint8_t* pSrc, int32_t srcStep, float* p
 
 EErrorStatus mclSqr_32f_C1R(const float* pSrc, int srcStep, float* pDst, int dstStep, ImageSize roiSize)
 {
-#ifdef NO_IPP
+#if defined(NO_IPP)
     if (!pSrc || !pDst)                          return MCL_ERR_NULL_PTR;
     if (roiSize.width < 1 || roiSize.height < 1) return MCL_ERR_INVALID_PARAM;
 
@@ -828,7 +828,7 @@ EErrorStatus mclSqr_32f_C1R(const float* pSrc, int srcStep, float* pDst, int dst
 
 EErrorStatus mclMul_32f_C1R(const float* pSrc1, int srcStep1, const float* pSrc2, int srcStep2, float* pDst, int dstStep, ImageSize roiSize)
 {
-#ifdef NO_IPP
+#if defined(NO_IPP)
     if (!pSrc1 || !pSrc2 || !pDst)               return MCL_ERR_NULL_PTR;
     if (roiSize.width < 1 || roiSize.height < 1) return MCL_ERR_INVALID_PARAM;
 
@@ -858,7 +858,7 @@ EErrorStatus mclMul_32f_C1R(const float* pSrc1, int srcStep1, const float* pSrc2
 
 EErrorStatus mclMean_32f_C1R(const float* pSrc, int srcStep, ImageSize roiSize, double& value)
 {
-#ifdef NO_IPP
+#if defined(NO_IPP)
     if (!pSrc)                                   return MCL_ERR_NULL_PTR;
     if (roiSize.width < 1 || roiSize.height < 1) return MCL_ERR_INVALID_PARAM;
 
@@ -888,7 +888,7 @@ EErrorStatus mclMean_32f_C1R(const float* pSrc, int srcStep, ImageSize roiSize, 
 
 EErrorStatus mclFilterRow_32f_C1R(const float* pSrc, int32_t srcStep, float* pDst, int32_t dstStep, ImageSize dstRoiSize, const float* pKernel, int32_t kernelSize, int32_t xAnchor)
 {
-#ifdef NO_IPP
+#if defined(NO_IPP)
     if (!pSrc || !pDst || !pKernel)                    return MCL_ERR_NULL_PTR;
     if (dstRoiSize.width < 1 || dstRoiSize.height < 1) return MCL_ERR_INVALID_PARAM;
     if (kernelSize < 1 || !(kernelSize&0x1))           return MCL_ERR_INVALID_PARAM;
@@ -918,14 +918,16 @@ EErrorStatus mclFilterRow_32f_C1R(const float* pSrc, int32_t srcStep, float* pDs
     }
 
     return MCL_ERR_NONE;
-#else
+#elif defined(LEGACY_IPP)
     return stsIPPtoMCL(ippiFilterRow_32f_C1R(pSrc, srcStep, pDst, dstStep, dstRoiSize, pKernel, kernelSize, xAnchor));
+#else
+    return MCL_ERR_NONE;
 #endif
 }
 
 EErrorStatus mclFilterColumn_32f_C1R(const float* pSrc, int32_t srcStep, float* pDst, int32_t dstStep, ImageSize dstRoiSize, const float* pKernel, int32_t kernelSize, int32_t xAnchor)
 {
-#ifdef NO_IPP
+#if defined(NO_IPP)
     if (!pSrc || !pDst || !pKernel)                    return MCL_ERR_NULL_PTR;
     if (dstRoiSize.width < 1 || dstRoiSize.height < 1) return MCL_ERR_INVALID_PARAM;
     if (kernelSize < 1 || !(kernelSize&0x1))           return MCL_ERR_INVALID_PARAM;
@@ -955,7 +957,9 @@ EErrorStatus mclFilterColumn_32f_C1R(const float* pSrc, int32_t srcStep, float* 
     }
 
     return MCL_ERR_NONE;
-#else
+#elif defined(LEGACY_IPP)
     return stsIPPtoMCL(ippiFilterColumn_32f_C1R(pSrc, srcStep, pDst, dstStep, dstRoiSize, pKernel, kernelSize, xAnchor));
+#else
+    return MCL_ERR_NONE;
 #endif
 }

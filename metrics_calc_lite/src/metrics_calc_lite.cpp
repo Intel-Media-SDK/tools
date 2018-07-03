@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Intel Corporation
+// Copyright (c) 2017-2018 Intel Corporation
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -24,10 +24,12 @@
 #define MASK_APSNR     (1 << 1)
 #define MASK_MSE       (1 << 2)
 #define MASK_SSIM      (1 << 3)
+
+#if !defined(NO_IPP)
 #define MASK_ARTIFACTS (1 << 4)
-#ifndef NO_IPP
 #define MASK_MWDVQM    (1 << 5)
 #define MASK_UQI       (1 << 6)
+#define MASK_MSSIM     (1 << 7)
 #endif
 
 #define INIT_YUV(a)        (a).push_back(std::make_pair('Y', 0)); \
@@ -440,7 +442,7 @@ public:
     void InitComputationParams(Component cmps,
         std::vector< std::string > &st, std::vector< bool > &oflag, std::vector< double > &avg)
     {
-        m_num_planes = cmps.size() - 1;
+        m_num_planes = (uint32_t)cmps.size() - 1;
 
         for(uint32_t i=0; i < m_num_planes; i++)
             c_mask[i] = cmps[i].second|cmps[m_num_planes].second;
@@ -486,7 +488,7 @@ public:
 
         for(i=0; i<m_num_planes; i++) {
             if(c_mask[i]&MASK_MSE) {
-                m_i1->GetFrame(i, &i1_p); m_i2->GetFrame(i, &i2_p);
+                m_i1->GetFrame((int32_t)i, &i1_p); m_i2->GetFrame((int32_t)i, &i2_p);
                 mclNormDiff_L2_C1R(i1_p.data,  i1_p.step, i2_p.data,  i2_p.step, i1_p.roi, sum[i], m_i1->GetBitDepth());
                 sum[i] = sum[i]*sum[i]/(double)(i1_p.roi.width*i1_p.roi.height);
                 val.push_back(sum[i]); avg[j++] += sum[i];
@@ -509,55 +511,55 @@ public:
     };
 };
 
-int32_t GaussianKernel (int32_t KernelSize, float sigma, float* pKernel) {
-    int32_t i;
-
-    float val, sum = 0.0f;
-    for (i = 0; i < KernelSize; i++) {
-      val = (float)(i - KernelSize / 2);
-      pKernel[i] = (float)exp(- (float)(val * val) / (float)(2.0f * sigma * sigma));
-      sum += pKernel[i];
-    }
-
-    for (i = 0; i < KernelSize; i++) pKernel[i] /= sum;
-
-    return 0;
-}
-
-void testFastSSIM_32f (
-    const float* pSrc1, int32_t src1Step, const float* pSrc2, int32_t src2Step, const float* pSrc3, int32_t src3Step,
-    const float* pSrc4, int32_t src4Step, const float* pSrc5, int32_t src5Step, float* pDst, int32_t dstStep,
-    ImageSize roiSize, float C1, float C2)
-{
-    int32_t     i, j;
-    float  t1, t2, t3, t4, *pMx, *pMy, *pSx2, *pSy2, *pSxy, *pDi;
-
-    C2 += C1;
-
-    for(j=0; j<roiSize.height; j++) {
-        pMx  = (float*)((uint8_t*)(pSrc1)+j*src1Step); pMy  = (float*)((uint8_t*)(pSrc2)+j*src2Step);
-        pSx2 = (float*)((uint8_t*)(pSrc3)+j*src3Step); pSy2 = (float*)((uint8_t*)(pSrc4)+j*src4Step);
-        pSxy = (float*)((uint8_t*)(pSrc5)+j*src5Step); pDi  = (float*)((uint8_t*)(pDst )+j*dstStep);
-        for(i=0; i<roiSize.width; i++) {
-            t1 = (*pMx)*(*pMy); t1 = t1 + t1 + C1; t2 = (*pSxy) + (*pSxy) - t1 + C2;
-            t3 = (*pMx)*(*pMx)+(*pMy)*(*pMy) + C1; t4 = (*pSx2) + (*pSy2) - t3 + C2;
-            t2 *= t1; t4 *= t3;
-            *pDi = (t4 >= FLT_EPSILON)? (t2/t4) : ((t3 >= FLT_EPSILON)? (t1/t3) : (1.0f));
-            pMx++; pMy++; pSx2++; pSy2++; pSxy++; pDi++;
-        }
-    }
-}
-
 class CSSIMEvaluator: public CMetricEvaluator {
 private:
     float  *m_mu1, *m_mu2, *m_mu1_sq, *m_mu2_sq, *m_mu1_mu2, *m_tmp;
     int32_t m_step, mc_ksz[3], m_xkidx[4], m_ykidx[4];
     float   m_ssim_c1, m_ssim_c2, m_kernel_values[11+7+5], *mc_krn[3];
+
+    int32_t GaussianKernel(int32_t KernelSize, float sigma, float* pKernel) {
+        int32_t i;
+
+        float val, sum = 0.0f;
+        for (i = 0; i < KernelSize; i++) {
+            val = (float)(i - KernelSize / 2);
+            pKernel[i] = (float)exp(-(float)(val * val) / (float)(2.0f * sigma * sigma));
+            sum += pKernel[i];
+        }
+
+        for (i = 0; i < KernelSize; i++) pKernel[i] /= sum;
+
+        return 0;
+    }
+
+    void testFastSSIM_32f(
+        const float* pSrc1, int32_t src1Step, const float* pSrc2, int32_t src2Step, const float* pSrc3, int32_t src3Step,
+        const float* pSrc4, int32_t src4Step, const float* pSrc5, int32_t src5Step, float* pDst, int32_t dstStep,
+        ImageSize roiSize, float C1, float C2)
+    {
+        int32_t     i, j;
+        float  t1, t2, t3, t4, *pMx, *pMy, *pSx2, *pSy2, *pSxy, *pDi;
+
+        C2 += C1;
+
+        for (j = 0; j<roiSize.height; j++) {
+            pMx = (float*)((uint8_t*)(pSrc1)+j * src1Step); pMy = (float*)((uint8_t*)(pSrc2)+j * src2Step);
+            pSx2 = (float*)((uint8_t*)(pSrc3)+j * src3Step); pSy2 = (float*)((uint8_t*)(pSrc4)+j * src4Step);
+            pSxy = (float*)((uint8_t*)(pSrc5)+j * src5Step); pDi = (float*)((uint8_t*)(pDst)+j * dstStep);
+            for (i = 0; i<roiSize.width; i++) {
+                t1 = (*pMx)*(*pMy); t1 = t1 + t1 + C1; t2 = (*pSxy) + (*pSxy) - t1 + C2;
+                t3 = (*pMx)*(*pMx) + (*pMy)*(*pMy) + C1; t4 = (*pSx2) + (*pSy2) - t3 + C2;
+                t2 *= t1; t4 *= t3;
+                *pDi = (t4 >= FLT_EPSILON) ? (t2 / t4) : ((t3 >= FLT_EPSILON) ? (t1 / t3) : (1.0f));
+                pMx++; pMy++; pSx2++; pSy2++; pSxy++; pDi++;
+            }
+        }
+    }
+
 public:
     CSSIMEvaluator(): m_ssim_c1(0), m_ssim_c2(0), m_step(0) {
         std::pair< std::string, std::pair<uint32_t, uint32_t> >   metric_pair;
-        metric_pair.first = "SSIM"; metric_pair.second.first = MASK_SSIM; metric_pair.second.second = MASK_SSIM|MASK_ARTIFACTS; metrics.push_back(metric_pair);
-        metric_pair.first = "ARTIFACTS"; metric_pair.second.first = MASK_ARTIFACTS; metric_pair.second.second = MASK_ARTIFACTS; metrics.push_back(metric_pair);
+        metric_pair.first = "SSIM"; metric_pair.second.first = MASK_SSIM; metric_pair.second.second = MASK_SSIM; metrics.push_back(metric_pair);
         m_mu1 = m_mu2 = m_mu1_sq = m_mu2_sq = m_mu1_mu2 = m_tmp = 0;
         GaussianKernel(11, 1.5,   m_kernel_values);
         GaussianKernel( 7, 0.75,  m_kernel_values+11);
@@ -600,25 +602,18 @@ public:
             if(m_i1->GetInterlaced()) m_ykidx[i]++;
         }
 
-        switch (m_i1->GetBitDepth()) {
-        case D010:
-            m_ssim_c1 = (0.01f * 1023.0f) * (0.01f * 1023.0f);
-            m_ssim_c2 = (0.03f * 1023.0f) * (0.03f * 1023.0f);
-            break;
-        default:
-            m_ssim_c1 = (0.01f *  255.0f) * (0.01f *  255.0f);
-            m_ssim_c2 = (0.03f *  255.0f) * (0.03f *  255.0f);
-            break;
-        }
-        return 0;
+        float max_e = (float)MaxError(m_i1->GetBitDepth());
+        m_ssim_c1 = 0.0001f*max_e*max_e;
+        m_ssim_c2 = 0.0009f*max_e*max_e;
+        
+        return MCL_ERR_NONE;
     };
 
     void ComputeMetrics(std::vector< double > &val, std::vector< double > &avg) {
         double     idx[5]  = {0.0, 0.0, 0.0, 0.0, 0.0};
         double     aidx[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
-        ImageSize  flt, flt_h, rng1;
-        ImagePoint pnt;
-        uint32_t   i, j = (uint32_t)val.size(), count, shift, shift_h;
+        ImageSize  flt, flt_h;
+        uint32_t   i, j = (uint32_t)val.size(), shift, shift_h;
         SImage     i1_p, i2_p;
 
         for(i=0; i<m_num_planes; i++) {
@@ -658,21 +653,6 @@ public:
 
                 val.push_back(idx[i]); avg[j++] += idx[i];
             }
-#ifndef NO_IPP
-            if(c_mask[i]&MASK_ARTIFACTS) {
-                pnt.x = (i)?2:3; pnt.y = (i)?2:3; flt.width = (i)?5:7; flt.height = (i)?5:7;
-
-                m_i1->GetFrame(i, &i1_p);
-                rng1.width  = i1_p.roi.width  - (mc_ksz[m_xkidx[i]]&~1) - 2*pnt.x;
-                rng1.height = i1_p.roi.height - (mc_ksz[m_ykidx[i]]&~1) - 2*pnt.y;
-                shift = pnt.x + (mc_ksz[m_xkidx[i]]>>1) + (pnt.y+(mc_ksz[m_ykidx[i]]>>1))*m_step/sizeof(float);
-
-                ippiFilterBox_32f_C1IR(m_tmp+shift, m_step, rng1, flt, pnt);
-                ippiCountInRange_32f_C1R(m_tmp+shift, m_step, rng1, (int32_t*)&count, -1.0f, 0.3f);
-
-                aidx[i] = count/(double)(rng1.width*rng1.height);
-            }
-#endif
         }
 
         if(c_mask[m_num_planes]&MASK_SSIM) {
@@ -687,29 +667,440 @@ public:
             }
             val.push_back(idx[m_num_planes]); avg[j++] += idx[m_num_planes];
         }
-#ifndef NO_IPP
-        for(i=0; i<m_num_planes; i++) {
-            if(c_mask[i]&MASK_ARTIFACTS) {
-                 val.push_back(aidx[i]); avg[j++] += aidx[i];
-            }
-        }
-        if(c_mask[m_num_planes]&MASK_ARTIFACTS) {
-            switch(get_chromaclass(m_i1->GetSqType())) {
-                case C444:
-                    aidx[m_num_planes] = (aidx[0]+aidx[1]+aidx[2]+aidx[3])/(double)m_num_planes; break;
-                case C422:
-                    aidx[3] = (2.0*aidx[0]+aidx[1]+aidx[2])/4.0; break;
-                case C420:
-                default:
-                    aidx[3] = (4.0*aidx[0]+aidx[1]+aidx[2])/6.0; break;
-            }
-            val.push_back(aidx[m_num_planes]); avg[j++] += aidx[m_num_planes];
-        }
-#endif
     };
 };
 
-#ifndef NO_IPP
+#if !defined(NO_IPP) && !defined(LEGACY_IPP)
+typedef struct {
+    Ipp32f **ppMu1;     // Placeholder for line buffer pointers for filtered Mu1 
+    Ipp32f **ppMu2;     // Placeholder for line buffer pointers for filtered Mu2
+    Ipp32f **ppMu1S;    // Placeholder for line buffer pointers for filtered Mu1*Mu1
+    Ipp32f **ppMu2S;    // Placeholder for line buffer pointers for filtered Mu2*Mu2
+    Ipp32f **ppMu12;    // Placeholder for line buffer pointers for filtered Mu1*Mu2
+
+    Ipp32f **ppData;    // Line buffer pointers data (allocated for max filter size)
+    Ipp32f  *pData;     // Filtered data (allocated for max filter size)
+    Ipp32s   step;      // Filtered data step
+
+    Ipp8u   *pRowBuf;   // Buffer for filtering along the rows
+    Ipp8u   *pColBuf;   // Buffer for filtering along the columns
+} ssim_context;
+
+const int mmsim_depth = 5;
+const int min_patch_height = 64;
+const int ssim_ctx_cnt = 8;
+const float artifacts_threshold = 0.3f;
+
+class CMSSIMEvaluator : public CMetricEvaluator {
+private:
+    Ipp32f * m_kernel_values;
+    ssim_context  m_ssim_ctx[ssim_ctx_cnt];
+
+    Ipp32f  *m_im1, *m_im2, *m_imt;
+    Ipp32f   m_ssim_c1, m_ssim_c2;
+
+    Ipp32s   mc_ksz[3], m_xkidx[4], m_ykidx[4], m_step;
+    Ipp32f  *mc_krn[3];
+
+    IppiResizeSpec_32f *m_pSpec;
+    Ipp8u *m_pBuffer;
+
+    int allocateSSIMContext(Ipp32s xs, Ipp32s ys, Ipp32s width, ssim_context* pCtx) {
+        IppiSize roi;
+        int      bsize, tsize = 5 * ys + 5;
+
+        pCtx->pData = ippiMalloc_32f_C1(width, tsize, &pCtx->step);
+        pCtx->ppData = (Ipp32f**)ippsMalloc_8s(sizeof(Ipp32f*) * 2 * tsize);
+
+        roi.width = width; roi.height = ys;
+        ippiFilterRowBorderPipelineGetBufferSize_32f_C1R(roi, xs, &bsize);
+        pCtx->pRowBuf = ippsMalloc_8u(bsize);
+
+        roi.width = width; roi.height = 1;
+        ippiFilterColumnPipelineGetBufferSize_32f_C1R(roi, ys, &bsize);
+        pCtx->pColBuf = ippsMalloc_8u(bsize);
+
+        return 0;
+    }
+
+    void freeSSIMContext(ssim_context* pCtx) {
+        ippsFree(pCtx->pRowBuf);
+        ippsFree(pCtx->pColBuf);
+        ippsFree(pCtx->ppData);
+        ippiFree(pCtx->pData);
+    }
+
+    void getSSIMIndexes_32f_R(Ipp32f* pSrc1, Ipp32f* pSrc2, int srcStep, int x_offset, int y_offset, IppiSize ds_roi, ssim_context *pCtx,
+        const Ipp32f* xknl, int xsz, const Ipp32f* yknl, int ysz, Ipp32f C1, Ipp32f C2, double *mssim, double *mcs, int *artf)
+    {
+        int      i, j;
+        Ipp32f **pTmp;
+        IppiSize i_roi, o_roi;
+        IppStatus status;
+        int      tsize = 5 * ysz + 5;
+
+        *mssim = 0.0; *mcs = 0.0; *artf = 0;  C2 += C1;
+
+        /* Build-up filtering pipeline*/
+        pSrc1 = (Ipp32f*)((Ipp8u*)pSrc1 + (y_offset - (ysz >> 1))*srcStep);
+        pSrc2 = (Ipp32f*)((Ipp8u*)pSrc2 + (y_offset - (ysz >> 1))*srcStep);
+
+        for (int i = 0; i < tsize; i++)
+            pCtx->ppData[i + tsize] = pCtx->ppData[i] = (Ipp32f*)((Ipp8u*)pCtx->pData + i * pCtx->step);
+
+        pCtx->ppMu1 = pCtx->ppData;
+        pCtx->ppMu2 = pCtx->ppMu1 + ysz;
+        pCtx->ppMu1S = pCtx->ppMu2 + ysz;
+        pCtx->ppMu2S = pCtx->ppMu1S + ysz;
+        pCtx->ppMu12 = pCtx->ppMu2S + ysz;
+        pTmp = pCtx->ppMu12 + ysz;
+
+        i_roi.width = ds_roi.width - xsz + 1; i_roi.height = ysz;
+        status = ippiFilterRowBorderPipeline_32f_C1R(pSrc1 + x_offset, srcStep, pCtx->ppMu1, i_roi, xknl, xsz, xsz >> 1, ippBorderInMem, 0.0f, pCtx->pRowBuf);
+        status = ippiFilterRowBorderPipeline_32f_C1R(pSrc2 + x_offset, srcStep, pCtx->ppMu2, i_roi, xknl, xsz, xsz >> 1, ippBorderInMem, 0.0f, pCtx->pRowBuf);
+
+        i_roi.width = ds_roi.width; i_roi.height = 1;
+        for (i = 0; i < ysz - 1; i++) {
+            status = ippsSqr_32f(pSrc1, *pTmp, ds_roi.width);
+            status = ippiFilterRowBorderPipeline_32f_C1R(*pTmp + x_offset, srcStep, pCtx->ppMu1S + i, i_roi, xknl, xsz, xsz >> 1, ippBorderInMem, 0.0f, pCtx->pRowBuf);
+            status = ippsSqr_32f(pSrc2, *pTmp, ds_roi.width);
+            status = ippiFilterRowBorderPipeline_32f_C1R(*pTmp + x_offset, srcStep, pCtx->ppMu2S + i, i_roi, xknl, xsz, xsz >> 1, ippBorderInMem, 0.0f, pCtx->pRowBuf);
+            status = ippsMul_32f(pSrc1, pSrc2, *pTmp, ds_roi.width);
+            status = ippiFilterRowBorderPipeline_32f_C1R(*pTmp + x_offset, srcStep, pCtx->ppMu12 + i, i_roi, xknl, xsz, xsz >> 1, ippBorderInMem, 0.0f, pCtx->pRowBuf);
+
+            pSrc1 = (Ipp32f*)((Ipp8u*)pSrc1 + srcStep);
+            pSrc2 = (Ipp32f*)((Ipp8u*)pSrc2 + srcStep);
+        }
+
+        /* Process ROI */
+        o_roi.width = ds_roi.width - xsz + 1; o_roi.height = 1;
+        for (i = 0; i < ds_roi.height; i++) {
+            status = ippiFilterRowBorderPipeline_32f_C1R(pSrc1 + x_offset, srcStep, pCtx->ppMu1 + ysz - 1, i_roi, xknl, xsz, xsz >> 1, ippBorderInMem, 0.0f, pCtx->pRowBuf);
+            status = ippiFilterRowBorderPipeline_32f_C1R(pSrc2 + x_offset, srcStep, pCtx->ppMu2 + ysz - 1, i_roi, xknl, xsz, xsz >> 1, ippBorderInMem, 0.0f, pCtx->pRowBuf);
+            status = ippsSqr_32f(pSrc1, *pTmp, ds_roi.width);
+            status = ippiFilterRowBorderPipeline_32f_C1R(*pTmp + x_offset, srcStep, pCtx->ppMu1S + ysz - 1, i_roi, xknl, xsz, xsz >> 1, ippBorderInMem, 0.0f, pCtx->pRowBuf);
+            status = ippsSqr_32f(pSrc2, *pTmp, ds_roi.width);
+            status = ippiFilterRowBorderPipeline_32f_C1R(*pTmp + x_offset, srcStep, pCtx->ppMu2S + ysz - 1, i_roi, xknl, xsz, xsz >> 1, ippBorderInMem, 0.0f, pCtx->pRowBuf);
+            status = ippsMul_32f(pSrc1, pSrc2, *pTmp, ds_roi.width);
+            status = ippiFilterRowBorderPipeline_32f_C1R(*pTmp + x_offset, srcStep, pCtx->ppMu12 + ysz - 1, i_roi, xknl, xsz, xsz >> 1, ippBorderInMem, 0.0f, pCtx->pRowBuf);
+            status = ippiFilterColumnPipeline_32f_C1R((const Ipp32f**)pCtx->ppMu1, pTmp[0], srcStep, o_roi, yknl, ysz, pCtx->pColBuf);
+            status = ippiFilterColumnPipeline_32f_C1R((const Ipp32f**)pCtx->ppMu2, pTmp[1], srcStep, o_roi, yknl, ysz, pCtx->pColBuf);
+            status = ippiFilterColumnPipeline_32f_C1R((const Ipp32f**)pCtx->ppMu1S, pTmp[2], srcStep, o_roi, yknl, ysz, pCtx->pColBuf);
+            status = ippiFilterColumnPipeline_32f_C1R((const Ipp32f**)pCtx->ppMu2S, pTmp[3], srcStep, o_roi, yknl, ysz, pCtx->pColBuf);
+            status = ippiFilterColumnPipeline_32f_C1R((const Ipp32f**)pCtx->ppMu12, pTmp[4], srcStep, o_roi, yknl, ysz, pCtx->pColBuf);
+
+            Ipp32f  t1, t2, t3, t4, *pMx, *pMy, *pSx2, *pSy2, *pSxy;
+            Ipp64f  tmp;
+            pMx = pTmp[0]; pMy = pTmp[1]; pSx2 = pTmp[2]; pSy2 = pTmp[3]; pSxy = pTmp[4];
+            for (j = 0; j<o_roi.width; j++) {
+                t1 = (*pMx)*(*pMy); t1 = t1 + t1 + C1;
+                t2 = (*pSxy) + (*pSxy) - t1 + C2;
+                t3 = (*pMx)*(*pMx) + (*pMy)*(*pMy) + C1;
+                t4 = (*pSx2) + (*pSy2) - t3 + C2;
+
+                *mcs += t2 / (Ipp64f)t4;
+                tmp = (t1*t2) / (Ipp64f)(t3*t4);
+                *mssim += tmp;
+                if (tmp < artifacts_threshold) (*artf)++;
+                pMx++; pMy++; pSx2++; pSy2++; pSxy++;
+            }
+
+            pSrc1 = (Ipp32f*)((Ipp8u*)pSrc1 + srcStep);
+            pSrc2 = (Ipp32f*)((Ipp8u*)pSrc2 + srcStep);
+
+            if ((pCtx->ppMu1 - pCtx->ppData) == (tsize - 1)) {
+                pCtx->ppMu1 = pCtx->ppData;
+                pCtx->ppMu2 = pCtx->ppMu1 + ysz;
+                pCtx->ppMu1S = pCtx->ppMu2 + ysz;
+                pCtx->ppMu2S = pCtx->ppMu1S + ysz;
+                pCtx->ppMu12 = pCtx->ppMu2S + ysz;
+                pTmp = pCtx->ppMu12 + ysz;
+            }
+            else {
+                pCtx->ppMu1++; pCtx->ppMu2++; pCtx->ppMu1S++; pCtx->ppMu2S++; pCtx->ppMu12++; pTmp++;
+            }
+        }
+    }
+
+public:
+    CMSSIMEvaluator() : m_ssim_c1(0), m_ssim_c2(0) {
+        std::pair< std::string, std::pair<unsigned int, unsigned int> >   metric_pair;
+        metric_pair.first = "MSSIM"; metric_pair.second.first = MASK_MSSIM; metric_pair.second.second = MASK_MSSIM | MASK_SSIM | MASK_ARTIFACTS; metrics.push_back(metric_pair);
+        metric_pair.first = "SSIM"; metric_pair.second.first = MASK_SSIM; metric_pair.second.second = MASK_SSIM; metrics.push_back(metric_pair);
+        metric_pair.first = "ARTIFACTS"; metric_pair.second.first = MASK_ARTIFACTS; metric_pair.second.second = MASK_ARTIFACTS; metrics.push_back(metric_pair);
+
+        m_xkidx[0] = m_xkidx[1] = m_xkidx[2] = m_xkidx[3] = m_ykidx[0] = m_ykidx[1] = m_ykidx[2] = m_ykidx[3] = 0;
+
+        m_pBuffer = 0; m_pSpec = 0;
+    };
+
+    ~CMSSIMEvaluator(void) {
+        for (int i = 0; i < ssim_ctx_cnt; i++) freeSSIMContext(m_ssim_ctx + i);
+        ippsFree(m_kernel_values);
+        ippiFree(m_im1);
+        ippsFree(m_pBuffer);
+        ippsFree(m_pSpec);
+    };
+
+    int GetGaussianSize(Ipp32f sigma, Ipp32f accuracy, Ipp32f* p, int maxsz) {
+        const int MaxKernelSize = 1023;
+        Ipp32f filter_tmp[MaxKernelSize];
+        int    i, gfsz = 0;
+        Ipp32f *tp;
+
+        Ipp32f val, sum = 0.0f;
+        for (i = 0; i < MaxKernelSize; i++) {
+            val = (Ipp32f)(i - MaxKernelSize / 2);
+            filter_tmp[i] = (Ipp32f)exp(-(Ipp32f)(val * val) / (Ipp32f)(2.0f * sigma * sigma));
+            sum += filter_tmp[i];
+        }
+        accuracy *= sum; sum = 0.0f; tp = p;
+        for (i = 0; i < MaxKernelSize; i++) {
+            if (filter_tmp[i] > accuracy) {
+                if (maxsz--) {
+                    gfsz++; *tp++ = (Ipp32f)filter_tmp[i]; sum += filter_tmp[i];
+                }
+                else {
+                    return -1;
+                }
+            }
+        }
+        for (i = 0; i < gfsz; i++) *p++ /= (Ipp32f)sum;
+
+        return gfsz;
+    }
+
+    int AllocateResourses(void) {
+        SImage  ref;
+        int     asz = 0;
+        float   sigma = 1.5f;
+
+        m_i1->GetFrame(0, &ref);
+
+        m_kernel_values = ippsMalloc_32f(1024);
+
+        mc_krn[0] = m_kernel_values;
+        mc_ksz[0] = GetGaussianSize(sigma, 0.0001f, mc_krn[0], 1024); asz += mc_ksz[0];
+        mc_krn[1] = m_kernel_values + asz;
+        mc_ksz[1] = GetGaussianSize(sigma / 2.0f, 0.0001f, mc_krn[1], 1024 - asz); asz += mc_ksz[1];
+        mc_krn[2] = m_kernel_values + asz;
+        mc_ksz[2] = GetGaussianSize(sigma / 4.0f, 0.0001f, mc_krn[2], 1024 - asz);
+
+        for (int i = 0; i<(int)m_num_planes; i++) {
+            if (i != 0) {
+                switch (get_chromaclass(m_i1->GetSqType())) {
+                case C444:
+                    break;
+                case C422:
+                    m_xkidx[i]++; break;
+                case C420:
+                default:
+                    m_xkidx[i]++; m_ykidx[i]++; break;
+                }
+            }
+            if (m_i1->GetInterlaced()) m_ykidx[i]++;
+        }
+
+        for (int i = 0; i < ssim_ctx_cnt; i++)
+            allocateSSIMContext(mc_ksz[m_xkidx[0]], mc_ksz[m_ykidx[0]], ref.roi.width, m_ssim_ctx + i);
+
+        m_im1 = ippiMalloc_32f_C1(ref.roi.width, 5 * ref.roi.height / 2, &m_step);
+        if (!m_im1)  return -2;
+        m_im2 = (Ipp32f*)((Ipp8s*)m_im1 + ref.roi.height*m_step);
+        m_imt = (Ipp32f*)((Ipp8s*)m_im2 + ref.roi.height*m_step);
+
+        float max_e = (float)MaxError(m_i1->GetBitDepth());
+        m_ssim_c1 = 0.0001f*max_e*max_e;
+        m_ssim_c2 = 0.0009f*max_e*max_e;
+
+        IppiSize sSize, dSize;
+        int specSize = 0, initSize = 0, bufSize = 0;
+        int specSizeMax = 0, bufSizeMax = 0;
+
+        // Minimal frame size requirements check
+        IppiSize mSize = { 176, 176 };
+        if ((c_mask[1] & (MASK_MSSIM | MASK_SSIM | MASK_ARTIFACTS)) || (c_mask[2] & (MASK_MSSIM | MASK_SSIM | MASK_ARTIFACTS))) {
+            if (get_chromaclass(m_i1->GetSqType()) == C422) {
+                mSize.width *= 2;
+            }
+            else if (get_chromaclass(m_i1->GetSqType()) == C444) {
+                mSize.width *= 2;
+                mSize.height *= 2;
+            }
+        }
+        if ((ref.roi.width < mSize.width || ref.roi.height < mSize.height)) return -3;
+
+        // Over-allocate temporary buffers for resize to cover both 420/422/444
+        sSize = ref.roi;
+        for (int l = 0; l<mmsim_depth; l++) {
+            dSize.width = sSize.width >> 1;
+            dSize.height = sSize.height >> 1;
+            ippiResizeGetSize_32f(sSize, dSize, ippSuper, 0, &specSize, &initSize);
+            if (specSize > specSizeMax) specSizeMax = specSize;
+            sSize = dSize;
+        }
+        m_pSpec = (IppiResizeSpec_32f*)ippsMalloc_8u(2 * specSizeMax);
+        if (!m_pSpec)  return -2;
+
+        sSize = ref.roi;
+        for (int l = 0; l<mmsim_depth; l++) {
+            dSize.width = sSize.width >> 1;
+            dSize.height = sSize.height >> 1;
+            ippiResizeSuperInit_32f(sSize, dSize, m_pSpec);
+            ippiResizeGetBufferSize_32f(m_pSpec, dSize, 1, &bufSize);
+            if (bufSize > bufSizeMax) bufSizeMax = bufSize;
+            sSize = dSize;
+        }
+        m_pBuffer = ippsMalloc_8u(2 * bufSizeMax);
+        if (!m_pBuffer)  return -2;
+
+        return 0;
+    };
+
+    void ComputeMetrics(std::vector< double > &val, std::vector< double > &avg) {
+        const double pwrs[mmsim_depth] = { 0.0448, 0.2856, 0.3001, 0.2363, 0.1333 };
+        double      ms_idx[5] = { 0.0, 0.0, 0.0, 0.0, 0.0 };
+        double      ss_idx[5] = { 0.0, 0.0, 0.0, 0.0, 0.0 };
+        double      af_idx[5] = { 0.0, 0.0, 0.0, 0.0, 0.0 };
+        double      mssim[mmsim_depth], mcs[mmsim_depth], artcnt[mmsim_depth];
+        double      mssim_p[ssim_ctx_cnt], mcs_p[ssim_ctx_cnt];
+        int         artcnt_p[ssim_ctx_cnt];
+        int         depth, r, k, i, j = (int)val.size();
+        SImage      i1_p, i2_p;
+        IppiSize    pr_roi, ds_roi;
+        IppiPoint   dstOffset = { 0, 0 };
+        Ipp32f     *pSrc1, *pSrc2, *pTmp, *pTmp1;
+
+        for (i = 0; i<(int)m_num_planes; i++) {
+            if (c_mask[i] & (MASK_MSSIM | MASK_SSIM | MASK_ARTIFACTS)) {
+                m_i1->GetFrame(i, &i1_p); m_i2->GetFrame(i, &i2_p);
+                pSrc1 = m_im1; pSrc2 = m_im2; pTmp = m_imt;
+                depth = (c_mask[i] & (MASK_MSSIM | MASK_ARTIFACTS)) ? mmsim_depth : 1;
+                for (k = 0; k<depth; k++) {
+                    if (k) {
+                        pr_roi = ds_roi; ds_roi.width = pr_roi.width >> 1; ds_roi.height = pr_roi.height >> 1;
+                        pr_roi.width &= ~0x1; pr_roi.height &= ~0x1; // Possibly discard last column/row to match reference MS-SSIM code
+                        ippiResizeSuperInit_32f(pr_roi, ds_roi, m_pSpec);
+                        ippiResizeSuper_32f_C1R(pSrc2, m_step, pTmp, m_step, dstOffset, ds_roi, m_pSpec, m_pBuffer);
+                        ippiResizeSuper_32f_C1R(pSrc1, m_step, pSrc2, m_step, dstOffset, ds_roi, m_pSpec, m_pBuffer);
+                        pTmp1 = pSrc1; pSrc1 = pSrc2; pSrc2 = pTmp; pTmp = pTmp1;
+                    }
+                    else {
+                        if (m_i1->GetBitDepth() == D008) {
+                            ippiConvert_8u32f_C1R((Ipp8u*)i1_p.data, i1_p.step, pSrc1, m_step, i1_p.roi);
+                            ippiConvert_8u32f_C1R((Ipp8u*)i2_p.data, i2_p.step, pSrc2, m_step, i2_p.roi);
+                        }
+                        else {
+                            ippiConvert_16u32f_C1R((Ipp16u*)i1_p.data, i1_p.step, pSrc1, m_step, i1_p.roi);
+                            ippiConvert_16u32f_C1R((Ipp16u*)i2_p.data, i2_p.step, pSrc2, m_step, i2_p.roi);
+                        }
+                        ds_roi = i1_p.roi;
+                    }
+
+                    int i_width = ds_roi.width - mc_ksz[m_xkidx[i]] + 1;
+                    int i_height = ds_roi.height - mc_ksz[m_ykidx[i]] + 1;
+                    int patch_cnt = i_height / min_patch_height;
+
+                    if (patch_cnt == 0) {
+                        patch_cnt = 1;
+                    }
+                    else if (patch_cnt > ssim_ctx_cnt) {
+                        patch_cnt = ssim_ctx_cnt;
+                    }
+
+                    int patch_height = i_height / patch_cnt;
+
+                    #pragma omp parallel for
+                    for (r = 0; r < patch_cnt; r++) {
+                        IppiSize p_roi = ds_roi;
+                        int x_offset = (mc_ksz[m_xkidx[i]] >> 1);
+                        int y_offset = (mc_ksz[m_ykidx[i]] >> 1) + r * patch_height;
+
+                        p_roi.width = ds_roi.width;
+                        p_roi.height = (r != (patch_cnt - 1)) ? patch_height : ds_roi.height - mc_ksz[m_ykidx[i]] + 1 - r * patch_height;
+
+                        getSSIMIndexes_32f_R(pSrc1, pSrc2, m_step, x_offset, y_offset, p_roi, m_ssim_ctx + r, mc_krn[m_xkidx[i]], mc_ksz[m_xkidx[i]], mc_krn[m_ykidx[i]], mc_ksz[m_ykidx[i]], m_ssim_c1, m_ssim_c2, mssim_p + r, mcs_p + r, artcnt_p + r);
+                    }
+
+                    mssim[k] = 0.0; mcs[k] = 0.0; artcnt[k] = 0,0;
+                    for (int r = 0; r < patch_cnt; r++) { mssim[k] += mssim_p[r]; mcs[k] += mcs_p[r]; artcnt[k] += artcnt_p[r]; }
+
+                    mssim[k] /= (double)(i_width * i_height);
+                    mcs[k] /= (double)(i_width * i_height);
+                    artcnt[k] /= (double)(i_width * i_height);
+
+                    if (mcs[k] < 0.0f) mcs[k] = 0.0f;
+                    if (mssim[k] < 0.0f) mssim[k] = 0.0f;
+                }
+
+                if (c_mask[i] & MASK_MSSIM) {
+                    double f_mssim = pow(mssim[mmsim_depth - 1], pwrs[mmsim_depth - 1]);
+                    for (k = 0; k<mmsim_depth - 1; k++) f_mssim *= pow(mcs[k], pwrs[k]);
+
+                    ms_idx[i] = f_mssim;
+                }
+                if (c_mask[i] & MASK_SSIM) ss_idx[i] = mssim[0];
+                if (c_mask[i] & MASK_ARTIFACTS) af_idx[i] = 0.5*(artcnt[3] + artcnt[4]);
+            }
+        }
+
+        for (i = 0; i<(int)m_num_planes; i++) {
+            if (c_mask[i] & MASK_MSSIM) {
+                val.push_back(ms_idx[i]); avg[j++] += ms_idx[i];
+            }
+        }
+
+        if (c_mask[m_num_planes] & MASK_MSSIM) {
+            switch (get_chromaclass(m_i1->GetSqType())) {
+            case C444:
+                ms_idx[m_num_planes] = (ms_idx[0] + ms_idx[1] + ms_idx[2] + ms_idx[3]) / (double)m_num_planes; break;
+            case C422:
+                ms_idx[3] = (2.0*ms_idx[0] + ms_idx[1] + ms_idx[2]) / 4.0; break;
+            case C420:
+            default:
+                ms_idx[3] = (4.0*ms_idx[0] + ms_idx[1] + ms_idx[2]) / 6.0; break;
+            }
+            val.push_back(ms_idx[m_num_planes]); avg[j++] += ms_idx[m_num_planes];
+        }
+
+        for (i = 0; i<(int)m_num_planes; i++) {
+            if (c_mask[i] & MASK_SSIM) {
+                val.push_back(ss_idx[i]); avg[j++] += ss_idx[i];
+            }
+        }
+        if (c_mask[m_num_planes] & MASK_SSIM) {
+            switch (get_chromaclass(m_i1->GetSqType())) {
+            case C444:
+                ss_idx[m_num_planes] = (ss_idx[0] + ss_idx[1] + ss_idx[2] + ss_idx[3]) / (double)m_num_planes; break;
+            case C422:
+                ss_idx[3] = (2.0*ss_idx[0] + ss_idx[1] + ss_idx[2]) / 4.0; break;
+            case C420:
+            default:
+                ss_idx[3] = (4.0*ss_idx[0] + ss_idx[1] + ss_idx[2]) / 6.0; break;
+            }
+            val.push_back(ss_idx[m_num_planes]); avg[j++] += ss_idx[m_num_planes];
+        }
+
+        for (i = 0; i<(int)m_num_planes; i++) {
+            if (c_mask[i] & MASK_ARTIFACTS) {
+                val.push_back(af_idx[i]); avg[j++] += af_idx[i];
+            }
+        }
+        if (c_mask[m_num_planes] & MASK_ARTIFACTS) {
+            switch (get_chromaclass(m_i1->GetSqType())) {
+            case C444:
+                af_idx[m_num_planes] = (af_idx[0] + af_idx[1] + af_idx[2] + af_idx[3]) / (double)m_num_planes; break;
+            case C422:
+                af_idx[3] = (2.0*af_idx[0] + af_idx[1] + af_idx[2]) / 4.0; break;
+            case C420:
+            default:
+                af_idx[3] = (4.0*af_idx[0] + af_idx[1] + af_idx[2]) / 6.0; break;
+            }
+            val.push_back(af_idx[m_num_planes]); avg[j++] += af_idx[m_num_planes];
+        }
+    }
+};
+
 const short mpegmatrix [ 64 ] = {
     8,  16, 19, 22, 26, 27, 29, 34,
     16, 16, 22, 21, 27, 29, 34, 37,
@@ -767,48 +1158,64 @@ public:
         }
         switch(get_chromaclass(m_i1->GetSqType())) {
             case C444:
-                sum[3] = (sum[0]+sum[1]+sum[2]+sum[3])/(double)m_num_planes; break;
+                sum[m_num_planes] = (sum[0]+sum[1]+sum[2]+sum[3])/(double)m_num_planes; break;
             case C422:
                 sum[3] = (2.0*sum[0]+sum[1]+sum[2])/4.0; break;
             case C420:
             default:
                 sum[3] = (4.0*sum[0]+sum[1]+sum[2])/6.0; break;
         }
-        if(c_mask[3]&MASK_MWDVQM) { val.push_back(sum[m_num_planes]); avg[j++] += sum[m_num_planes]; }
+        if(c_mask[m_num_planes]&MASK_MWDVQM) { val.push_back(sum[m_num_planes]); avg[j++] += sum[m_num_planes]; }
     };
 };
 
-class CUQIEvaluator: public CMetricEvaluator {
+class CUQIEvaluator : public CMetricEvaluator {
+private:
+    Ipp8u * pBuf;
 public:
     CUQIEvaluator() {
-        std::pair< std::string, std::pair<uint32_t, uint32_t> >   metric_pair;
+        std::pair< std::string, std::pair<unsigned int, unsigned int> >   metric_pair;
         metric_pair.first = "UQI"; metric_pair.second.first = MASK_UQI; metric_pair.second.second = MASK_UQI; metrics.push_back(metric_pair);
+        pBuf = 0;
     };
-    ~CUQIEvaluator(void) {};
-    int32_t AllocateResourses(void) { return 0; };
-    void ComputeMetrics(std::vector< double > &val, std::vector< double > &avg) {
-        SImage i1_p, i2_p;
-        float  sum[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
-        int32_t    i, j = (int)val.size();
+    ~CUQIEvaluator(void) { ippsFree(pBuf); };
+    int AllocateResourses(void) {
+        SImage  i1_p;
+        int     bsize;
 
-        for(i=0; i<3; i++) {
-            if(c_mask[i]&MASK_UQI) {
+        m_i1->GetFrame(0, &i1_p);
+
+        if (m_i1->GetBitDepth() == D008) ippiQualityIndexGetBufferSize(ipp8u, ippC1, i1_p.roi, &bsize);
+        else ippiQualityIndexGetBufferSize(ipp16u, ippC1, i1_p.roi, &bsize);
+
+        pBuf = ippsMalloc_8u(bsize);
+
+        return 0;
+    };
+    void ComputeMetrics(std::vector< double > &val, std::vector< double > &avg) {
+        SImage  i1_p, i2_p;
+        float   sum[5] = { 0.0, 0.0, 0.0, 0.0, 0.0 };
+        int     i, j = (int)val.size();
+
+        for (i = 0; i<3; i++) {
+            if (c_mask[i] & MASK_UQI) {
                 m_i1->GetFrame(i, &i1_p); m_i2->GetFrame(i, &i2_p);
-                if      (m_i1->GetBitDepth() == D008) ippiQualityIndex_8u32f_C1R( (uint8_t*)i1_p.data,  i1_p.step, (uint8_t*)i2_p.data,  i2_p.step, i1_p.roi, &(sum[i]));
-                else if (m_i1->GetBitDepth() == D010) ippiQualityIndex_16u32f_C1R((uint16_t*)i1_p.data, i1_p.step, (uint16_t*)i2_p.data, i2_p.step, i1_p.roi, &(sum[i]));
+                if (m_i1->GetBitDepth() == D008) ippiQualityIndex_8u32f_C1R((Ipp8u*)i1_p.data, i1_p.step, (Ipp8u*)i2_p.data, i2_p.step, i1_p.roi, &(sum[i]), pBuf);
+                else if (m_i1->GetBitDepth() == D010) ippiQualityIndex_16u32f_C1R((Ipp16u*)i1_p.data, i1_p.step, (Ipp16u*)i2_p.data, i2_p.step, i1_p.roi, &(sum[i]), pBuf);
                 val.push_back((double)(sum[i])); avg[j++] += sum[i];
             }
         }
-        switch(get_chromaclass(m_i1->GetSqType())) {
-            case C444:
-                sum[3] = (sum[0]+sum[1]+sum[2]+sum[3])/(float)m_num_planes; break;
-            case C422:
-                sum[3] = (2.0f*sum[0]+sum[1]+sum[2])/4.0f; break;
-            case C420:
-            default:
-                sum[3] = (4.0f*sum[0]+sum[1]+sum[2])/6.0f; break;
+
+        switch (get_chromaclass(m_i1->GetSqType())) {
+        case C444:
+            sum[m_num_planes] = (sum[0] + sum[1] + sum[2] + sum[3]) / (float)m_num_planes; break;
+        case C422:
+            sum[3] = (2.0f*sum[0] + sum[1] + sum[2]) / 4.0f; break;
+        case C420:
+        default:
+            sum[3] = (4.0f*sum[0] + sum[1] + sum[2]) / 6.0f; break;
         }
-        if(c_mask[3]&MASK_UQI) { val.push_back((double)(sum[m_num_planes])); avg[j++] += sum[m_num_planes]; }
+        if (c_mask[m_num_planes] & MASK_UQI) { val.push_back((double)(sum[m_num_planes])); avg[j++] += sum[m_num_planes]; }
     };
 };
 #endif
@@ -835,10 +1242,10 @@ int32_t usage(void)
 {
     std::cout << "Usage:" << std::endl;
     std::cout << "metrics_calc_lite.exe <Options> <metric1> ... [<metricN>]... <plane1> ...[<planeN>] ..." << std::endl;
-#ifdef NO_IPP
+#if defined(NO_IPP) || defined(LEGACY_IPP)
     std::cout << "Possible metrics are: psnr, apsnr, ssim" << std::endl;
 #else
-    std::cout << "Possible metrics are: psnr, apsnr, ssim, artifacts, mwdvqm, uqi" << std::endl;
+    std::cout << "Possible metrics are: psnr, apsnr, ssim, mssim, artifacts, mwdvqm, uqi" << std::endl;
 #endif
     std::cout << "Possible planes are: y, u, v, overall, all" << std::endl;
     std::cout << "Required options are:" << std::endl;
@@ -889,10 +1296,11 @@ int32_t parse_metrics(Component &cmps, int32_t argc, char** argv, int32_t curc)
             if      ( strcmp( argv[curc], "psnr" ) == 0      && curc + 1 < argc ) { cm |= MASK_PSNR; cm |= MASK_MSE; curc++; not_metric = false; }
             else if ( strcmp( argv[curc], "apsnr" ) == 0     && curc + 1 < argc ) { cm |= MASK_APSNR; cm |= MASK_MSE; curc++; not_metric = false; }
             else if ( strcmp( argv[curc], "ssim" ) == 0      && curc + 1 < argc ) { cm |= MASK_SSIM; curc++; not_metric = false; }
-#ifndef NO_IPP
+#if !defined(NO_IPP) && !defined(LEGACY_IPP)
             else if ( strcmp( argv[curc], "artifacts" ) == 0 && curc + 1 < argc ) { cm |= MASK_ARTIFACTS; curc++; not_metric = false; }
             else if ( strcmp( argv[curc], "mwdvqm" ) == 0    && curc + 1 < argc ) { cm |= MASK_MWDVQM; curc++; not_metric = false; }
             else if ( strcmp( argv[curc], "uqi" ) == 0       && curc + 1 < argc ) { cm |= MASK_UQI; curc++; not_metric = false; }
+            else if ( strcmp( argv[curc], "mssim") == 0      && curc + 1 < argc ) { cm |= MASK_MSSIM; curc++; not_metric = false; }
 #endif
             else break;
         }
@@ -1134,7 +1542,7 @@ int32_t main(int32_t argc, char** argv)
 
     const int32_t fm_count = std::min(fm1_cntr, fm2_cntr);
 
-#ifndef NO_IPP
+#if !defined(NO_IPP)
     ippInit();
 #endif
 
@@ -1152,10 +1560,13 @@ int32_t main(int32_t argc, char** argv)
     if (all_metrics & (MASK_PSNR|MASK_APSNR))
         mevs.push_back( new CPSNREvaluator() );
 
-    if (all_metrics & (MASK_SSIM|MASK_ARTIFACTS))
+#if defined(NO_IPP) || defined(LEGACY_IPP)
+    if (all_metrics & (MASK_SSIM))
         mevs.push_back( new CSSIMEvaluator() );
+#else
+    if (all_metrics & (MASK_SSIM | MASK_MSSIM | MASK_ARTIFACTS))
+        mevs.push_back(new CMSSIMEvaluator());
 
-#ifndef NO_IPP
     if (all_metrics & MASK_MWDVQM)
         mevs.push_back( new CMWDVQMEvaluator() );
 
