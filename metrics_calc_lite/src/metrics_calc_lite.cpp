@@ -18,6 +18,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
+
 #include "metrics_calc_lite_utils.h"
 
 #define MASK_PSNR      (1 << 0)
@@ -50,6 +54,10 @@ double MaxError(EBitDepth bd) {
     {
     case D010:
         return 1023.0;
+    case D012:
+        return 4095.0;
+    case D016:
+        return 65535.0;
     default:
         return 255.0;
     }
@@ -150,7 +158,7 @@ public:
 
             m_planes[0].roi.width  = m_planes[1].roi.width   = m_planes[2].roi.width  = m_planes[3].roi.width  = w;
             m_planes[0].roi.height = m_planes[1].roi.height  = m_planes[2].roi.height = m_planes[3].roi.height = h;
-            m_planes[0].step       = m_planes[1].step        = m_planes[2].step       = m_planes[3].step       = w * ((m_type == A2RGB10P || m_type == A2RGB10I) ? 2 : m_source_pixel_size);
+            m_planes[0].step       = m_planes[1].step        = m_planes[2].step       = m_planes[3].step       = w * ((m_type == ARGB16P || m_type == A2RGB10P || m_type == A2RGB10I) ? 2 : m_source_pixel_size);
 
             m_planes[1].data = m_planes[0].data + m_planes[0].roi.height*m_planes[0].step;
             m_planes[2].data = m_planes[1].data + m_planes[1].roi.height*m_planes[1].step;
@@ -173,6 +181,7 @@ public:
             switch (m_type) {
                 case RGB32P:
                 case RGB32I:
+                case ARGB16P:
                     mclCopy_C4P4R(m_Meta.data, m_planes[0].step<<2, planes, m_planes[0].step, roi, m_bd);
                     break;
                 case A2RGB10P:
@@ -343,6 +352,8 @@ public:
                 switch(type) {
                     case AYUVP:
                     case AYUVI:
+                    case Y416P:
+                    case Y416I:
                         m_planes[0].data = mclMalloc(m_Meta.step, bd);
                         if (!m_planes[0].data) return MCL_ERR_MEMORY_ALLOC;
                         m_planes[1].data = m_planes[0].data + m_planes[0].roi.height*m_planes[0].step;
@@ -403,6 +414,12 @@ public:
                     planes[2] = m_planes[0].data;
                     planes[0] = m_planes[2].data;
                     mclCopy_C4P4R(m_Meta.data, m_planes[0].step<<2, planes, m_planes[0].step, m_planes[0].roi, m_bd);
+                    break;
+                case Y416P:
+                case Y416I:
+                    planes[1] = m_planes[0].data;
+                    planes[0] = m_planes[1].data;
+                    mclCopy_C4P4R(m_Meta.data, m_planes[0].step << 2, planes, m_planes[0].step, m_planes[0].roi, m_bd);
                     break;
                 case Y410P:
                 case Y410I:
@@ -688,7 +705,11 @@ typedef struct {
 
 const int mmsim_depth = 5;
 const int min_patch_height = 64;
-const int ssim_ctx_cnt = 8;
+#if defined(_OPENMP)
+const int ssim_ctx_cnt = 8; // Support up to 8 threads if compiled with enabled OpenMP
+#else
+const int ssim_ctx_cnt = 1; // Default to sequential MS-SSIM evaluation
+#endif
 const float artifacts_threshold = 0.3f;
 
 class CMSSIMEvaluator : public CMetricEvaluator {
@@ -730,16 +751,14 @@ private:
         ippiFree(pCtx->pData);
     }
 
-    void getSSIMIndexes_32f_R(Ipp32f* pSrc1, Ipp32f* pSrc2, int srcStep, int x_offset, int y_offset, IppiSize ds_roi, ssim_context *pCtx,
-        const Ipp32f* xknl, int xsz, const Ipp32f* yknl, int ysz, Ipp32f C1, Ipp32f C2, double *mssim, double *mcs, int *artf)
+    inline void getSSIMIndexes_32f_R(Ipp32f* pSrc1, Ipp32f* pSrc2, const int srcStep, const int x_offset, const int y_offset, const IppiSize ds_roi, ssim_context *pCtx,
+        const Ipp32f* xknl, const int xsz, const Ipp32f* yknl, const int ysz, const Ipp32f C1, const Ipp32f C2, double &mssim, double &mcs, int &artf)
     {
         int      i, j;
         Ipp32f **pTmp;
         IppiSize i_roi, o_roi;
         IppStatus status;
-        int      tsize = 5 * ysz + 5;
-
-        *mssim = 0.0; *mcs = 0.0; *artf = 0;  C2 += C1;
+        const int tsize = 5 * ysz + 5;
 
         /* Build-up filtering pipeline*/
         pSrc1 = (Ipp32f*)((Ipp8u*)pSrc1 + (y_offset - (ysz >> 1))*srcStep);
@@ -792,19 +811,20 @@ private:
             Ipp32f  t1, t2, t3, t4, *pMx, *pMy, *pSx2, *pSy2, *pSxy;
             Ipp64f  tmp;
             pMx = pTmp[0]; pMy = pTmp[1]; pSx2 = pTmp[2]; pSy2 = pTmp[3]; pSxy = pTmp[4];
+            
             for (j = 0; j<o_roi.width; j++) {
                 t1 = (*pMx)*(*pMy); t1 = t1 + t1 + C1;
                 t2 = (*pSxy) + (*pSxy) - t1 + C2;
                 t3 = (*pMx)*(*pMx) + (*pMy)*(*pMy) + C1;
                 t4 = (*pSx2) + (*pSy2) - t3 + C2;
 
-                *mcs += t2 / (Ipp64f)t4;
+                mcs += t2 / (Ipp64f)t4;
                 tmp = (t1*t2) / (Ipp64f)(t3*t4);
-                *mssim += tmp;
-                if (tmp < artifacts_threshold) (*artf)++;
+                mssim += tmp;
+                if (tmp < artifacts_threshold) (artf)++;
                 pMx++; pMy++; pSx2++; pSy2++; pSxy++;
             }
-
+            
             pSrc1 = (Ipp32f*)((Ipp8u*)pSrc1 + srcStep);
             pSrc2 = (Ipp32f*)((Ipp8u*)pSrc2 + srcStep);
 
@@ -825,7 +845,7 @@ private:
 public:
     CMSSIMEvaluator() : m_ssim_c1(0), m_ssim_c2(0) {
         std::pair< std::string, std::pair<unsigned int, unsigned int> >   metric_pair;
-        metric_pair.first = "MSSIM"; metric_pair.second.first = MASK_MSSIM; metric_pair.second.second = MASK_MSSIM | MASK_SSIM | MASK_ARTIFACTS; metrics.push_back(metric_pair);
+        metric_pair.first = "MSSIM"; metric_pair.second.first = MASK_MSSIM; metric_pair.second.second = MASK_MSSIM; metrics.push_back(metric_pair);
         metric_pair.first = "SSIM"; metric_pair.second.first = MASK_SSIM; metric_pair.second.second = MASK_SSIM; metrics.push_back(metric_pair);
         metric_pair.first = "ARTIFACTS"; metric_pair.second.first = MASK_ARTIFACTS; metric_pair.second.second = MASK_ARTIFACTS; metrics.push_back(metric_pair);
 
@@ -859,8 +879,7 @@ public:
             if (filter_tmp[i] > accuracy) {
                 if (maxsz--) {
                     gfsz++; *tp++ = (Ipp32f)filter_tmp[i]; sum += filter_tmp[i];
-                }
-                else {
+                } else {
                     return -1;
                 }
             }
@@ -963,8 +982,6 @@ public:
         double      ss_idx[5] = { 0.0, 0.0, 0.0, 0.0, 0.0 };
         double      af_idx[5] = { 0.0, 0.0, 0.0, 0.0, 0.0 };
         double      mssim[mmsim_depth], mcs[mmsim_depth], artcnt[mmsim_depth];
-        double      mssim_p[ssim_ctx_cnt], mcs_p[ssim_ctx_cnt];
-        int         artcnt_p[ssim_ctx_cnt];
         int         depth, r, k, i, j = (int)val.size();
         SImage      i1_p, i2_p;
         IppiSize    pr_roi, ds_roi;
@@ -1001,33 +1018,34 @@ public:
                     int i_height = ds_roi.height - mc_ksz[m_ykidx[i]] + 1;
                     int patch_cnt = i_height / min_patch_height;
 
-                    if (patch_cnt == 0) {
-                        patch_cnt = 1;
-                    }
-                    else if (patch_cnt > ssim_ctx_cnt) {
-                        patch_cnt = ssim_ctx_cnt;
-                    }
-
+                    if (patch_cnt == 0) patch_cnt = 1;
+                    if (patch_cnt > ssim_ctx_cnt) patch_cnt = ssim_ctx_cnt;
+#if defined(_OPENMP)
+                    if (patch_cnt > omp_get_max_threads()) patch_cnt = omp_get_max_threads();
+#endif
                     int patch_height = i_height / patch_cnt;
 
-                    #pragma omp parallel for
+                    double mssim_a = 0.0, mcs_a = 0.0, artcnt_a = 0.0;
+#if defined(_OPENMP)
+                    #pragma omp parallel for reduction( + : mssim_a, mcs_a, artcnt_a )
+#endif
                     for (r = 0; r < patch_cnt; r++) {
                         IppiSize p_roi = ds_roi;
                         int x_offset = (mc_ksz[m_xkidx[i]] >> 1);
                         int y_offset = (mc_ksz[m_ykidx[i]] >> 1) + r * patch_height;
+                        double mssim_l = 0.0, mcs_l = 0.0;
+                        int    artcnt_l = 0;
 
                         p_roi.width = ds_roi.width;
                         p_roi.height = (r != (patch_cnt - 1)) ? patch_height : ds_roi.height - mc_ksz[m_ykidx[i]] + 1 - r * patch_height;
 
-                        getSSIMIndexes_32f_R(pSrc1, pSrc2, m_step, x_offset, y_offset, p_roi, m_ssim_ctx + r, mc_krn[m_xkidx[i]], mc_ksz[m_xkidx[i]], mc_krn[m_ykidx[i]], mc_ksz[m_ykidx[i]], m_ssim_c1, m_ssim_c2, mssim_p + r, mcs_p + r, artcnt_p + r);
+                        getSSIMIndexes_32f_R(pSrc1, pSrc2, m_step, x_offset, y_offset, p_roi, m_ssim_ctx + r, mc_krn[m_xkidx[i]], mc_ksz[m_xkidx[i]], mc_krn[m_ykidx[i]], mc_ksz[m_ykidx[i]], m_ssim_c1, m_ssim_c2 + m_ssim_c1, mssim_l, mcs_l, artcnt_l);
+                        mssim_a += mssim_l; mcs_a += mcs_l; artcnt_a += artcnt_l;
                     }
 
-                    mssim[k] = 0.0; mcs[k] = 0.0; artcnt[k] = 0,0;
-                    for (int r = 0; r < patch_cnt; r++) { mssim[k] += mssim_p[r]; mcs[k] += mcs_p[r]; artcnt[k] += artcnt_p[r]; }
-
-                    mssim[k] /= (double)(i_width * i_height);
-                    mcs[k] /= (double)(i_width * i_height);
-                    artcnt[k] /= (double)(i_width * i_height);
+                    mssim[k] = mssim_a/(double)(i_width * i_height);
+                    mcs[k] = mcs_a/(double)(i_width * i_height);
+                    artcnt[k] = artcnt_a/(double)(i_width * i_height);
 
                     if (mcs[k] < 0.0f) mcs[k] = 0.0f;
                     if (mssim[k] < 0.0f) mssim[k] = 0.0f;
@@ -1140,7 +1158,7 @@ public:
                         if (m_i1->GetBitDepth() == D008) {
                             ippiConvert_8u32f_C1R((uint8_t*)(i1_p.data+((m*i1_p.step+k)<<3)), i1_p.step, fb1, 8*sizeof(float), sz8x8);
                             ippiConvert_8u32f_C1R((uint8_t*)(i2_p.data+((m*i2_p.step+k)<<3)), i2_p.step, fb2, 8*sizeof(float), sz8x8);
-                        } else if (m_i1->GetBitDepth() == D010) {
+                        } else {
                             ippiConvert_16u32f_C1R((uint16_t*)(i1_p.data+((m*i1_p.step+k)<<3)), i1_p.step, fb1, 8*sizeof(float), sz8x8);
                             ippiConvert_16u32f_C1R((uint16_t*)(i2_p.data+((m*i2_p.step+k)<<3)), i2_p.step, fb2, 8*sizeof(float), sz8x8);
                         }
@@ -1201,7 +1219,7 @@ public:
             if (c_mask[i] & MASK_UQI) {
                 m_i1->GetFrame(i, &i1_p); m_i2->GetFrame(i, &i2_p);
                 if (m_i1->GetBitDepth() == D008) ippiQualityIndex_8u32f_C1R((Ipp8u*)i1_p.data, i1_p.step, (Ipp8u*)i2_p.data, i2_p.step, i1_p.roi, &(sum[i]), pBuf);
-                else if (m_i1->GetBitDepth() == D010) ippiQualityIndex_16u32f_C1R((Ipp16u*)i1_p.data, i1_p.step, (Ipp16u*)i2_p.data, i2_p.step, i1_p.roi, &(sum[i]), pBuf);
+                else if (m_i1->GetBitDepth() == D010 || m_i1->GetBitDepth() == D012 || m_i1->GetBitDepth() == D016) ippiQualityIndex_16u32f_C1R((Ipp16u*)i1_p.data, i1_p.step, (Ipp16u*)i2_p.data, i2_p.step, i1_p.roi, &(sum[i]), pBuf);
                 val.push_back((double)(sum[i])); avg[j++] += sum[i];
             }
         }
@@ -1264,10 +1282,10 @@ int32_t usage(void)
     std::cout << "    -st type1 [type2]   - input sequences type (type1 for both sequences, type2 override type for second sequence)" << std::endl;
     std::cout << "                          4:2:0 types: i420p (default), i420i, yv12p, nv12p, yv12i, nv12i" << std::endl;
     std::cout << "                          4:2:2 types: yuy2p, yuy2i, nv16p, nv16i, i422p, i422i" << std::endl;
-    std::cout << "                          4:4:4 types: ayuvp, ayuvi, y410p, y410i, i444p, i444i, i410p, i410i" << std::endl;
-    std::cout << "                          RGB types  : rgb32p, rgb32i, a2rgb10p, a2rgb10i" << std::endl;
+    std::cout << "                          4:4:4 types: ayuvp, ayuvi, y410p, y410i, y416p, y416i, i444p, i444i, i410p, i410i" << std::endl;
+    std::cout << "                          RGB types  : rgb32p, rgb32i, a2rgb10p, a2rgb10i, argb16p" << std::endl;
     std::cout << "    -bd <integer>       - bit depth of sequences pixels" << std::endl;
-    std::cout << "                          Possible values: 8, 10" << std::endl;
+    std::cout << "                          Possible values: 8, 10, 12, 16" << std::endl;
     std::cout << "    -rshift1 <integer>  - shift pixel values for <integer> bits to the right in first file" << std::endl;
     std::cout << "    -rshift2 <integer>  - shift pixel values for <integer> bits to the right in second file" << std::endl;
     std::cout << "    -btm_first          - bottom field first for interlaced sources" << std::endl;
@@ -1339,6 +1357,8 @@ void parse_fourcc(char* str, ESequenceType& sq_type, EBitDepth& bd)
     else if( strcmp( str, "ayuvi" ) == 0 )    { sq_type = AYUVI; }
     else if( strcmp( str, "y410p" ) == 0 )    { sq_type = Y410P; bd = D010; }
     else if( strcmp( str, "y410i" ) == 0 )    { sq_type = Y410I; bd = D010; }
+    else if( strcmp( str, "y416p" ) == 0)     { sq_type = Y416P; bd = D016; }
+    else if( strcmp( str, "y416i" ) == 0)     { sq_type = Y416I; bd = D016; }
     else if( strcmp( str, "i444p" ) == 0 )    { sq_type = I444P; }
     else if( strcmp( str, "i444i" ) == 0 )    { sq_type = I444I; }
     else if( strcmp( str, "i410p" ) == 0 )    { sq_type = I410P; bd = D010; }
@@ -1347,6 +1367,7 @@ void parse_fourcc(char* str, ESequenceType& sq_type, EBitDepth& bd)
     else if( strcmp( str, "rgb32i" ) == 0 )   { sq_type = RGB32I; }
     else if( strcmp( str, "a2rgb10p" ) == 0 ) { sq_type = A2RGB10P; bd = D010; }
     else if( strcmp( str, "a2rgb10i" ) == 0 ) { sq_type = A2RGB10I; bd = D010; }
+    else if (strcmp( str, "argb16p"  ) == 0)   { sq_type = ARGB16P; bd = D016; }
     else                                      { sq_type = UNKNOWN; }
 }
 
@@ -1438,6 +1459,8 @@ int32_t main(int32_t argc, char** argv)
         } else if ( strcmp( argv[cur_param], "-bd" ) == 0 && cur_param + 1 < argc ) {
             if( strcmp( argv[cur_param + 1], "8" ) == 0 )       { bd = D008; cur_param += 2; }
             else if( strcmp( argv[cur_param + 1], "10" ) == 0 ) { bd = D010; cur_param += 2; }
+            else if( strcmp( argv[cur_param + 1], "12" ) == 0 ) { bd = D012; cur_param += 2; }
+            else if( strcmp( argv[cur_param + 1], "16" ) == 0 ) { bd = D016; cur_param += 2; }
             else { std::cout << errors_table[14] << std::endl; return -14;}
         } else if ( strcmp( argv[cur_param], "-st" ) == 0 && cur_param + 1 < argc ) {
             parse_fourcc(argv[cur_param + 1], sq1_type, bd);

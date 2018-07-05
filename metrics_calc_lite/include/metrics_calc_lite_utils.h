@@ -51,15 +51,16 @@ typedef enum {
     MCL_ERR_MEMORY_ALLOC  = -4
 } EErrorStatus;
 
-typedef enum { UNKNOWN,
-               I420P, I420I, YV12P, YV12I, NV12P, NV12I,               // 4:2:0
-               YUY2P, YUY2I, NV16P, NV16I, I422P, I422I,               // 4:2:2
-               AYUVP, AYUVI, Y410P, Y410I, I444P, I444I, I410P, I410I, // 4:4:4
-               RGB32I, RGB32P, A2RGB10I, A2RGB10P        // R:G:B
+typedef enum {
+    UNKNOWN,
+    I420P, I420I, YV12P, YV12I, NV12P, NV12I,                             // 4:2:0
+    YUY2P, YUY2I, NV16P, NV16I, I422P, I422I,                             // 4:2:2
+    AYUVP, AYUVI, Y410P, Y410I, I444P, I444I, I410P, I410I, Y416P, Y416I, // 4:4:4
+    RGB32I, RGB32P, A2RGB10I, A2RGB10P, ARGB16P                           // R:G:B
 } ESequenceType;
 
 typedef enum { C420, C422, C444 } EChromaType;
-typedef enum { D008, D010       } EBitDepth;
+typedef enum { D008, D010, D012, D016 } EBitDepth;
 
 #ifdef NO_IPP
 typedef struct {
