@@ -42,6 +42,7 @@ bool is_interlaced(ESequenceType st) {
         case I422I:
         case AYUVI:
         case Y410I:
+        case Y416I:
         case I444I:
         case I410I:
         case RGB32I:
@@ -58,6 +59,7 @@ bool is_rgb(ESequenceType st) {
         case RGB32I:
         case A2RGB10P:
         case A2RGB10I:
+        case ARGB16P:
             return true;
         default:
             return false;
@@ -74,10 +76,13 @@ EChromaType get_chromaclass(ESequenceType st) {
         case I444I:
         case I410P:
         case I410I:
+        case Y416P:
+        case Y416I:
         case RGB32I:
         case RGB32P:
         case A2RGB10I:
         case A2RGB10P:
+        case ARGB16P:
             return C444;
         case YUY2P:
         case YUY2I:
@@ -117,10 +122,10 @@ uint8_t* mclMalloc(uint32_t size, EBitDepth bd)
 {
 #if defined(NO_IPP)
     if      (bd == D008) return (uint8_t*)new uint8_t[size];
-    else if (bd == D010) return (uint8_t*)new uint16_t[size];
+    else if (bd == D010 || bd == D012 || bd == D016) return (uint8_t*)new uint16_t[size];
 #else
     if      (bd == D008) return (uint8_t*)ippsMalloc_8u(size);
-    else if (bd == D010) return (uint8_t*)ippsMalloc_16u(size);
+    else if (bd == D010 || bd == D012 || bd == D016) return (uint8_t*)ippsMalloc_16u(size);
 #endif
     return NULL;
 }
@@ -238,7 +243,7 @@ EErrorStatus mclYCbCr420ToYCrCb420_P2P3R(const uint8_t* pSrcY, int32_t srcYStep,
 #else
     if      (bd == D008) ippiYCbCr420ToYCrCb420_8u_P2P3R((uint8_t*)pSrcY,  srcYStep, (uint8_t*)pSrcUV,  srcUVStep, (uint8_t**)PDst,  dstStep, roiSize);
 #endif
-    else if (bd == D010) mclYCbCr420ToYCrCb420_16u_P2P3R((uint16_t*)pSrcY, srcYStep, (uint16_t*)pSrcUV, srcUVStep, (uint16_t**)PDst, dstStep, roiSize);
+    else if (bd == D010 || bd == D012 || bd == D016) mclYCbCr420ToYCrCb420_16u_P2P3R((uint16_t*)pSrcY, srcYStep, (uint16_t*)pSrcUV, srcUVStep, (uint16_t**)PDst, dstStep, roiSize);
     return MCL_ERR_INVALID_PARAM;
 }
 
@@ -332,7 +337,7 @@ EErrorStatus mclYCbCr422_C2P3R(uint8_t* pSrc, int32_t srcStep, uint8_t* pDst[3],
 #else
     if      (bd == D008) ippiYCbCr422_8u_C2P3R((uint8_t*)pSrc,  srcStep, (uint8_t**)pDst,  dstStep, roiSize);
 #endif
-    else if (bd == D010) mclYCbCr422_16u_C2P3R((uint16_t*)pSrc, srcStep, (uint16_t**)pDst, dstStep, roiSize);
+    else if (bd == D010 || bd == D012 || bd == D016) mclYCbCr422_16u_C2P3R((uint16_t*)pSrc, srcStep, (uint16_t**)pDst, dstStep, roiSize);
     return MCL_ERR_INVALID_PARAM;
 }
 
@@ -607,10 +612,10 @@ EErrorStatus mclCopy_C4P4R(const uint8_t* pSrc, int32_t srcStep, uint8_t* const 
 {
 #if defined(NO_IPP)
     if      (D008 == bd) return mclCopy_8u_C4P4R( (uint8_t*)pSrc,  srcStep, (uint8_t**)pDst,  dstStep, roiSize);
-    else if (D010 == bd) return mclCopy_16u_C4P4R((uint16_t*)pSrc, srcStep, (uint16_t**)pDst, dstStep, roiSize);
+    else if (D010 == bd || D012 == bd || D016 == bd) return mclCopy_16u_C4P4R((uint16_t*)pSrc, srcStep, (uint16_t**)pDst, dstStep, roiSize);
 #else
     if      (D008 == bd) return stsIPPtoMCL(ippiCopy_8u_C4P4R( (uint8_t*)pSrc,  srcStep, (uint8_t**)pDst,  dstStep, roiSize));
-    else if (D010 == bd) return stsIPPtoMCL(ippiCopy_16u_C4P4R((uint16_t*)pSrc, srcStep, (uint16_t**)pDst, dstStep, roiSize));
+    else if (D010 == bd || D012 == bd || D016 == bd) return stsIPPtoMCL(ippiCopy_16u_C4P4R((uint16_t*)pSrc, srcStep, (uint16_t**)pDst, dstStep, roiSize));
 #endif
     return MCL_ERR_INVALID_PARAM;
 }
@@ -664,10 +669,10 @@ EErrorStatus mclRShiftC_C1IR(uint32_t value, uint8_t* pSrcDst, int32_t srcDstSte
     if (0 == value) return MCL_ERR_NONE;
 #if defined(NO_IPP)
     if      (D008 == bd) return mclRShiftC_8u_C1IR (value, (uint8_t*) pSrcDst, srcDstStep,  roiSize);
-    else if (D010 == bd) return mclRShiftC_16u_C1IR(value, (uint16_t*) pSrcDst, srcDstStep, roiSize);
+    else if (D010 == bd || D012 == bd || D016 == bd) return mclRShiftC_16u_C1IR(value, (uint16_t*) pSrcDst, srcDstStep, roiSize);
 #else
     if      (D008 == bd) return stsIPPtoMCL(ippiRShiftC_8u_C1IR (value, (uint8_t*) pSrcDst, srcDstStep,  roiSize));
-    else if (D010 == bd) return stsIPPtoMCL(ippiRShiftC_16u_C1IR(value, (uint16_t*) pSrcDst, srcDstStep, roiSize));
+    else if (D010 == bd || D012 == bd || D016 == bd) return stsIPPtoMCL(ippiRShiftC_16u_C1IR(value, (uint16_t*) pSrcDst, srcDstStep, roiSize));
 #endif
     return MCL_ERR_INVALID_PARAM;
 }
@@ -729,10 +734,10 @@ EErrorStatus mclNormDiff_L2_C1R(const uint8_t* pSrc1, int32_t src1Step, const ui
 {
 #if defined(NO_IPP)
     if      (D008 == bd) return mclNormDiff_L2_8u_C1R( (uint8_t*) pSrc1, src1Step, (uint8_t*) pSrc2, src2Step, roiSize, &value);
-    else if (D010 == bd) return mclNormDiff_L2_16u_C1R((uint16_t*)pSrc1, src1Step, (uint16_t*)pSrc2, src2Step, roiSize, &value);
+    else if (D010 == bd || D012 == bd || D016 == bd) return mclNormDiff_L2_16u_C1R((uint16_t*)pSrc1, src1Step, (uint16_t*)pSrc2, src2Step, roiSize, &value);
 #else
     if      (D008 == bd) return stsIPPtoMCL(ippiNormDiff_L2_8u_C1R( (uint8_t*) pSrc1, src1Step, (uint8_t*) pSrc2, src2Step, roiSize, &value));
-    else if (D010 == bd) return stsIPPtoMCL(ippiNormDiff_L2_16u_C1R((uint16_t*)pSrc1, src1Step, (uint16_t*)pSrc2, src2Step, roiSize, &value));
+    else if (D010 == bd || D012 == bd || D016 == bd) return stsIPPtoMCL(ippiNormDiff_L2_16u_C1R((uint16_t*)pSrc1, src1Step, (uint16_t*)pSrc2, src2Step, roiSize, &value));
 #endif
     return MCL_ERR_INVALID_PARAM;
 }
@@ -790,10 +795,10 @@ EErrorStatus mclConvert__u32f_C1R(const uint8_t* pSrc, int32_t srcStep, float* p
 {
 #if defined(NO_IPP)
     if      (D008 == bd) return mclConvert_8u32f_C1R( (uint8_t*) pSrc, srcStep, pDst, dstStep, roiSize);
-    else if (D010 == bd) return mclConvert_16u32f_C1R((uint16_t*)pSrc, srcStep, pDst, dstStep, roiSize);
+    else if (D010 == bd || D012 == bd || D016 == bd) return mclConvert_16u32f_C1R((uint16_t*)pSrc, srcStep, pDst, dstStep, roiSize);
 #else
     if      (D008 == bd) return stsIPPtoMCL(ippiConvert_8u32f_C1R( (uint8_t*) pSrc, srcStep, pDst, dstStep, roiSize));
-    else if (D010 == bd) return stsIPPtoMCL(ippiConvert_16u32f_C1R((uint16_t*)pSrc, srcStep, pDst, dstStep, roiSize));
+    else if (D010 == bd || D012 == bd || D016 == bd) return stsIPPtoMCL(ippiConvert_16u32f_C1R((uint16_t*)pSrc, srcStep, pDst, dstStep, roiSize));
 #endif
     return MCL_ERR_INVALID_PARAM;
 }
