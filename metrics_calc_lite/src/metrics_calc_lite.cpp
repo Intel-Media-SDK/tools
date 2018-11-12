@@ -126,11 +126,18 @@ public:
     };
 
     virtual ~CRGBReader() {
-        if (m_Meta.data) {
-            mclFree(m_Meta.data);
-        }
-        if (m_planes[0].data) {
-            mclFree(m_planes[0].data);
+        if (m_Meta.data == m_planes[0].data) {
+            if (m_Meta.data) {
+                mclFree(m_Meta.data);
+                m_planes[0].data = 0;
+            }
+        } else {
+            if (m_Meta.data) {
+                mclFree(m_Meta.data);
+            }
+            if (m_planes[0].data) {
+                mclFree(m_planes[0].data);
+            }
         }
     };
 
@@ -141,7 +148,7 @@ public:
         }
         if(NULL != (m_file = fopen(name.c_str(),"rb"))) {
             m_source_pixel_size = ( bd == D008 || m_type == A2RGB10P || m_type == A2RGB10I ) ? 1 : 2;
-            m_Meta.step         = w * h * 4;
+            m_Meta.step         = (m_type == RGBPP || m_type == RGBPI) ? w * h * 3 : w * h * 4;
             m_Meta.roi.width    = w;
             m_Meta.roi.height   = h;
             m_Meta.data         = mclMalloc(m_Meta.step, bd);
@@ -153,16 +160,24 @@ public:
 
             if(0 != (m_intl = is_interlaced(type))) m_num_fields <<= 1;
 
-            m_planes[0].data = mclMalloc(m_Meta.step, bd);
-            if (!m_planes[0].data) return MCL_ERR_MEMORY_ALLOC;
-
             m_planes[0].roi.width  = m_planes[1].roi.width   = m_planes[2].roi.width  = m_planes[3].roi.width  = w;
             m_planes[0].roi.height = m_planes[1].roi.height  = m_planes[2].roi.height = m_planes[3].roi.height = h;
             m_planes[0].step       = m_planes[1].step        = m_planes[2].step       = m_planes[3].step       = w * ((m_type == ARGB16P || m_type == A2RGB10P || m_type == A2RGB10I) ? 2 : m_source_pixel_size);
 
-            m_planes[1].data = m_planes[0].data + m_planes[0].roi.height*m_planes[0].step;
-            m_planes[2].data = m_planes[1].data + m_planes[1].roi.height*m_planes[1].step;
-            m_planes[3].data = m_planes[2].data + m_planes[2].roi.height*m_planes[2].step;
+            if (m_type == RGBPP || m_type == RGBPI) {
+                m_planes[0].data = m_Meta.data;
+                m_planes[1].data = m_planes[0].data + m_planes[0].roi.height*m_planes[0].step;
+                m_planes[2].data = m_planes[1].data + m_planes[1].roi.height*m_planes[1].step;
+                m_planes[3].roi.width  = 0;
+                m_planes[3].roi.height = 0;
+                m_planes[3].step = 0;
+            } else {
+                m_planes[0].data = mclMalloc(m_Meta.step, bd);
+                if (!m_planes[0].data) return MCL_ERR_MEMORY_ALLOC;
+                m_planes[1].data = m_planes[0].data + m_planes[0].roi.height*m_planes[0].step;
+                m_planes[2].data = m_planes[1].data + m_planes[1].roi.height*m_planes[1].step;
+                m_planes[3].data = m_planes[2].data + m_planes[2].roi.height*m_planes[2].step;
+            }
             return MCL_ERR_NONE;
         } else {
             return MCL_ERR_INVALID_PARAM;
@@ -195,7 +210,9 @@ public:
             mclRShiftC_C1IR(m_RShift, m_planes[0].data, m_planes[0].step, m_planes[0].roi, m_bd);
             mclRShiftC_C1IR(m_RShift, m_planes[1].data, m_planes[1].step, m_planes[1].roi, m_bd);
             mclRShiftC_C1IR(m_RShift, m_planes[2].data, m_planes[2].step, m_planes[2].roi, m_bd);
-            mclRShiftC_C1IR(m_RShift, m_planes[3].data, m_planes[3].step, m_planes[3].roi, m_bd);
+            if (m_type != RGBPP && m_type != RGBPI) {
+                mclRShiftC_C1IR(m_RShift, m_planes[3].data, m_planes[3].step, m_planes[3].roi, m_bd);
+            }
             m_cur_frame = (int32_t)field;
             return (res != m_Meta.step);
         } else {
@@ -1283,7 +1300,7 @@ int32_t usage(void)
     std::cout << "                          4:2:0 types: i420p (default), i420i, yv12p, nv12p, yv12i, nv12i" << std::endl;
     std::cout << "                          4:2:2 types: yuy2p, yuy2i, nv16p, nv16i, i422p, i422i" << std::endl;
     std::cout << "                          4:4:4 types: ayuvp, ayuvi, y410p, y410i, y416p, y416i, i444p, i444i, i410p, i410i" << std::endl;
-    std::cout << "                          RGB types  : rgb32p, rgb32i, a2rgb10p, a2rgb10i, argb16p" << std::endl;
+    std::cout << "                          RGB types  : rgb32p, rgb32i, rgbpp, rgbpi, a2rgb10p, a2rgb10i, argb16p" << std::endl;
     std::cout << "    -bd <integer>       - bit depth of sequences pixels" << std::endl;
     std::cout << "                          Possible values: 8, 10, 12, 16" << std::endl;
     std::cout << "    -rshift1 <integer>  - shift pixel values for <integer> bits to the right in first file" << std::endl;
@@ -1365,6 +1382,8 @@ void parse_fourcc(char* str, ESequenceType& sq_type, EBitDepth& bd)
     else if( strcmp( str, "i410i" ) == 0 )    { sq_type = I410I; bd = D010; }
     else if( strcmp( str, "rgb32p" ) == 0 )   { sq_type = RGB32P; }
     else if( strcmp( str, "rgb32i" ) == 0 )   { sq_type = RGB32I; }
+    else if( strcmp( str, "rgbpp" ) == 0 )    { sq_type = RGBPP; }
+    else if( strcmp( str, "rgbpi" ) == 0 )    { sq_type = RGBPI; }
     else if( strcmp( str, "a2rgb10p" ) == 0 ) { sq_type = A2RGB10P; bd = D010; }
     else if( strcmp( str, "a2rgb10i" ) == 0 ) { sq_type = A2RGB10I; bd = D010; }
     else if (strcmp( str, "argb16p"  ) == 0)   { sq_type = ARGB16P; bd = D016; }

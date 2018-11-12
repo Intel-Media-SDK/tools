@@ -56,7 +56,7 @@ typedef enum {
     I420P, I420I, YV12P, YV12I, NV12P, NV12I,                             // 4:2:0
     YUY2P, YUY2I, NV16P, NV16I, I422P, I422I,                             // 4:2:2
     AYUVP, AYUVI, Y410P, Y410I, I444P, I444I, I410P, I410I, Y416P, Y416I, // 4:4:4
-    RGB32I, RGB32P, A2RGB10I, A2RGB10P, ARGB16P                           // R:G:B
+    RGB32I, RGB32P, RGBPP, RGBPI, A2RGB10I, A2RGB10P, ARGB16P             // R:G:B
 } ESequenceType;
 
 typedef enum { C420, C422, C444 } EChromaType;
