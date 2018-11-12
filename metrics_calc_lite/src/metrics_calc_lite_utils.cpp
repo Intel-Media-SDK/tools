@@ -46,6 +46,7 @@ bool is_interlaced(ESequenceType st) {
         case I444I:
         case I410I:
         case RGB32I:
+        case RGBPI:
         case A2RGB10I:
             return true;
         default:
@@ -57,6 +58,8 @@ bool is_rgb(ESequenceType st) {
     switch (st) {
         case RGB32P:
         case RGB32I:
+        case RGBPP:
+        case RGBPI:
         case A2RGB10P:
         case A2RGB10I:
         case ARGB16P:
@@ -80,6 +83,8 @@ EChromaType get_chromaclass(ESequenceType st) {
         case Y416I:
         case RGB32I:
         case RGB32P:
+        case RGBPP:
+        case RGBPI:
         case A2RGB10I:
         case A2RGB10P:
         case ARGB16P:
