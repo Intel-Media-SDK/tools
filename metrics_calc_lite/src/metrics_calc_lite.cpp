@@ -47,7 +47,7 @@
                  if(alpha) (a).push_back(std::make_pair('A', 0)); \
                            (a).push_back(std::make_pair('O', 0));
 
-const double MAX_PSNR = 1000.0;
+const double MAX_PSNR = 140.0;
 
 double MaxError(EBitDepth bd) {
     switch (bd)
