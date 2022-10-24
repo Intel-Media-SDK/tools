@@ -5,10 +5,13 @@ This repo contains utilities and tools to support Intel® Media SDK development.
 Here is a list of tools with build and usage instructions.
 
 ## metrics_calc_lite
-This tool calculates objective metrics (`PSNR`, `SSIM`) for raw video files.
+This tool calculates objective metrics (`PSNR`, `APSNR`, `SSIM`) for raw video files.
 
-Tool supports Intel® Integrated Performance Primitives (Intel® IPP) optimizations, to enable it pass `-DUSE_IPP=ON` to `cmake`. It is `OFF` by default.
-In order to use IPP you should have `IPP_ROOT` variable point to a directory with `IPP`'s `include` and `lib` folders.
+Tool supports Intel® Integrated Performance Primitives (Intel® IPP) optimizations, to enable it pass `-DUSE_IPP=ON` to `cmake`. It is `OFF` by default. 
+In order to use IPP you should have `IPP_ROOT` variable point to a directory with `IPP`'s `include` and `lib` folders. With Intel® IPP enabled, more metrics are supported: `MSSIM`, `ARTIFACTS`, `MWDVQM`, `UQI`.
+
+Tool supports Intel® OpenMP (IOMP) multiple threading, to enable it pass `-D_OPENMP=ON` to `cmake`. It is `OFF` by default.
+In order to use IOMP you should have `IOMP_ROOT` variable point to a directory with `Intel oneAPI`'s `comliper` folders. (Ex. On windows, "C:\Program Files (x86)\Intel\oneAPI\compiler\latest\windows")
 
 Build on Linux:
 ```sh
@@ -44,3 +47,7 @@ Example:
 
 # See also
 [Intel® Media SDK repo](https://github.com/Intel-Media-SDK/MediaSDK)
+
+[Intel® Integrated Performance Primitives (Intel® IPP)](https://www.intel.com/content/www/us/en/developer/articles/tool/oneapi-standalone-components.html#ipp)
+
+[Use the OpenMP Libraries](https://www.intel.com/content/www/us/en/develop/documentation/oneapi-dpcpp-cpp-compiler-dev-guide-and-reference/top/optimization-and-programming/openmp-support/openmp-library-support/use-the-openmp-libraries.html)

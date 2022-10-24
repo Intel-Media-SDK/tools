@@ -23,6 +23,7 @@ cmake_minimum_required(VERSION 2.8)
 project(metrics_calc_lite)
 
 OPTION(USE_IPP "Enable Intel(R) IPP optimizations" OFF)
+OPTION(USE_IOMP "Enable Intel(R) OpenMP" OFF)
 
 include_directories(include)
 
@@ -47,6 +48,32 @@ else()
     file(TO_CMAKE_PATH ${IPP_ROOT}/em64t/lib IPP_LIB)
     set(IPP_LIBS ippi ipps ippcc ippcv ippcore)
   endif()
+endif()
+
+if (USE_IOMP)
+  message("Intel OpenMP is used")
+  add_definitions(-D_OPENMP)
+  if (NOT DEFINED ENV{IOMP_ROOT})
+    message(FATAL_ERROR "Env var IOMP_ROOT should be set")
+  endif()
+
+  set(IOMP_ROOT $ENV{IOMP_ROOT})
+  string(REPLACE "\"" "" IOMP_ROOT ${IOMP_ROOT})
+
+  if (WIN32)
+    file(TO_CMAKE_PATH ${IOMP_ROOT}/compiler/lib/intel64_win IOMP_LIB_DIR)
+    set(IOMP_LIB libiomp5md)
+  endif()
+
+  find_library(_LIB NAMES ${IOMP_LIB} PATHS ${IOMP_LIB_DIR})
+  if (NOT _LIB MATCHES NOTFOUND)
+    MESSAGE("IOMP ${IOMP_LIB} library found at ${_LIB}")
+    link_directories(${IOMP_LIB_DIR})
+  else ()
+    message(FATAL_ERROR "Can't find ${IOMP_LIB} library!")
+  endif()
+  unset(_LIB CACHE )
+
 endif()
 
 add_executable(metrics_calc_lite src/metrics_calc_lite_utils.cpp src/metrics_calc_lite.cpp)
@@ -83,6 +110,14 @@ if (USE_IPP)
     endif()
     unset(_LIB CACHE )
   endforeach()
+endif()
+
+if (USE_IOMP)
+  target_link_options(metrics_calc_lite PRIVATE /nodefaultlib:vcomp libiomp5md.lib)
+endif()
+
+if (WIN32)
+  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MT")
 endif()
 
 if (UNIX)
